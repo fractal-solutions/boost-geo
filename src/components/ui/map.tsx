@@ -516,20 +516,14 @@ function MarkerLabel({
 }
 
 type MapControlsProps = {
-  /** Position of the controls on the map (default: "bottom-right") */
   position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
-  /** Show zoom in/out buttons (default: true) */
   showZoom?: boolean;
-  /** Show compass button to reset bearing (default: false) */
   showCompass?: boolean;
-  /** Show locate button to find user's location (default: false) */
   showLocate?: boolean;
-  /** Show fullscreen toggle button (default: false) */
   showFullscreen?: boolean;
-  /** Additional CSS classes for the controls container */
   className?: string;
-  /** Callback with user coordinates when located */
   onLocate?: (coords: { longitude: number; latitude: number }) => void;
+  onLocateError?: (error: GeolocationPositionError) => void;
 };
 
 const positionClasses = {
@@ -559,16 +553,7 @@ function ControlButton({
   disabled?: boolean;
 }) {
   return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      type="button"
-      className={cn(
-        "flex items-center justify-center size-8 hover:bg-accent dark:hover:bg-accent/40 transition-colors",
-        disabled && "opacity-50 pointer-events-none cursor-not-allowed"
-      )}
-      disabled={disabled}
-    >
+    <button onClick={onClick} aria-label={label} type="button" className={cn("flex items-center justify-center size-8 hover:bg-accent dark:hover:bg-accent/40 transition-colors", disabled && "opacity-50 pointer-events-none cursor-not-allowed")} disabled={disabled}>
       {children}
     </button>
   );
@@ -582,46 +567,33 @@ function MapControls({
   showFullscreen = false,
   className,
   onLocate,
+  onLocateError,
 }: MapControlsProps) {
   const { map, isLoaded } = useMap();
   const [waitingForLocation, setWaitingForLocation] = useState(false);
 
-  const handleZoomIn = useCallback(() => {
-    map?.zoomTo(map.getZoom() + 1, { duration: 300 });
-  }, [map]);
-
-  const handleZoomOut = useCallback(() => {
-    map?.zoomTo(map.getZoom() - 1, { duration: 300 });
-  }, [map]);
-
-  const handleResetBearing = useCallback(() => {
-    map?.resetNorthPitch({ duration: 300 });
-  }, [map]);
+  const handleZoomIn = useCallback(() => { map?.zoomTo(map.getZoom() + 1, { duration: 300 }); }, [map]);
+  const handleZoomOut = useCallback(() => { map?.zoomTo(map.getZoom() - 1, { duration: 300 }); }, [map]);
+  const handleResetBearing = useCallback(() => { map?.resetNorthPitch({ duration: 300 }); }, [map]);
 
   const handleLocate = useCallback(() => {
     setWaitingForLocation(true);
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const coords = {
-            longitude: pos.coords.longitude,
-            latitude: pos.coords.latitude,
-          };
-          map?.flyTo({
-            center: [coords.longitude, coords.latitude],
-            zoom: 14,
-            duration: 1500,
-          });
+          const coords = { longitude: pos.coords.longitude, latitude: pos.coords.latitude };
+          map?.flyTo({ center: [coords.longitude, coords.latitude], zoom: 14, duration: 1500 });
           onLocate?.(coords);
           setWaitingForLocation(false);
         },
         (error) => {
           console.error("Error getting location:", error);
+          onLocateError?.(error);
           setWaitingForLocation(false);
         }
       );
     }
-  }, [map, onLocate]);
+  }, [map, onLocate, onLocateError]);
 
   const handleFullscreen = useCallback(() => {
     const container = map?.getContainer();
