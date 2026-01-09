@@ -49,18 +49,40 @@ const messages = [
 
 
 /**
- * Fetches a route between waypoints.
- * NOTE: This is a placeholder. To get routes that follow roads, you need to
- * integrate a real routing service like Mapbox Directions API, OSRM, etc.
- * You would make a fetch request to the service with the waypoints and get
- * a GeoJSON LineString geometry in response, which you would then use as the route.
+ * Fetches a route between waypoints from the OSRM public API.
+ * @param waypoints An array of [longitude, latitude] coordinates.
+ * @returns A promise that resolves to an array of coordinates for the route path.
  */
 async function fetchRoute(waypoints: [number, number][]): Promise<[number, number][]> {
-  console.log("Fetching route for", waypoints);
-  // In a real app, you would call a routing API here.
-  // For now, we just return the waypoints to draw a straight line.
-  return Promise.resolve(waypoints);
+  if (waypoints.length < 2) {
+    return [];
+  }
+
+  const coordinatesString = waypoints.map(p => p.join(',')).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordinatesString}?overview=full&geometries=geojson`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+
+    if (data.routes && data.routes.length > 0) {
+      // OSRM returns coordinates in [longitude, latitude] format, which is what MapRoute expects.
+      const routeGeometry = data.routes[0].geometry.coordinates;
+      return routeGeometry;
+    } else {
+      console.warn("No route found by OSRM.");
+      return []; // No route found
+    }
+  } catch (error) {
+    console.error("Failed to fetch route from OSRM:", error);
+    // Fallback to a straight line in case of an API error
+    return waypoints;
+  }
 }
+
 
 // --- UI COMPONENTS ---
 const FriendList = ({ onToggle }: { onToggle: () => void }) => (
