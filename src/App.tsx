@@ -11,7 +11,6 @@ import {
   MapRoute,
   MarkerTooltip,
   MapPopup,
-  type MapRef,
 } from "@/components/ui/map";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -24,96 +23,88 @@ import {
   Users,
   Map as MapIcon,
   Settings,
-  Plus,
   MapPin,
   Flag,
   X,
+  Trash2,
+  Clock,
+  Route as RouteIcon,
+  Loader2,
 } from "lucide-react";
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import "./index.css";
 
+// --- TYPES ---
+interface RouteData {
+  coordinates: [number, number][];
+  duration: number; // seconds
+  distance: number; // meters
+}
+
 // --- MOCK DATA ---
-const currentUser = {
-  name: "Fractal",
-  avatar: "https://github.com/shadcn.png",
-};
+const currentUser = { name: "Fractal", avatar: "https://github.com/shadcn.png" };
 const friends = [
   { id: 1, name: "Alice", avatar: "https://i.pravatar.cc/150?u=a042581f4e29026704d", status: "online", lastMessage: "See you on the map!", unread: 2, location: { longitude: -122.41, latitude: 37.78 } },
   { id: 2, name: "Bob", avatar: "https://i.pravatar.cc/150?u=a042581f4e29026704e", status: "offline", lastMessage: "Let's catch up later.", unread: 0, location: { longitude: -122.42, latitude: 37.79 } },
 ];
-const messages = [
-  { id: 1, sender: "Alice", text: "Hey! Are you there?", time: "10:30 AM" },
-  { id: 2, sender: "Fractal", text: "Hey Alice! I'm here. What's up?", time: "10:31 AM" },
-];
-// --- END MOCK DATA ---
 
+// --- HELPERS ---
+function formatDuration(seconds: number): string {
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  const remainingMins = mins % 60;
+  return `${hours}h ${remainingMins}m`;
+}
 
-/**
- * Fetches a route between waypoints from the OSRM public API.
- * @param waypoints An array of [longitude, latitude] coordinates.
- * @returns A promise that resolves to an array of coordinates for the route path.
- */
-async function fetchRoute(waypoints: [number, number][]): Promise<[number, number][]> {
-  if (waypoints.length < 2) {
-    return [];
-  }
+function formatDistance(meters: number): string {
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
 
+// --- API ---
+async function fetchRoutes(waypoints: [number, number][]): Promise<RouteData[]> {
+  if (waypoints.length < 2) return [];
   const coordinatesString = waypoints.map(p => p.join(',')).join(';');
-  const url = `https://router.project-osrm.org/route/v1/driving/${coordinatesString}?overview=full&geometries=geojson`;
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordinatesString}?overview=full&geometries=geojson&alternatives=true`;
 
   try {
     const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
-
     if (data.routes && data.routes.length > 0) {
-      // OSRM returns coordinates in [longitude, latitude] format, which is what MapRoute expects.
-      const routeGeometry = data.routes[0].geometry.coordinates;
-      return routeGeometry;
-    } else {
-      console.warn("No route found by OSRM.");
-      return []; // No route found
+      return data.routes.map((route: any) => ({
+        coordinates: route.geometry.coordinates,
+        duration: route.duration,
+        distance: route.distance,
+      }));
     }
+    return [];
   } catch (error) {
-    console.error("Failed to fetch route from OSRM:", error);
-    // Fallback to a straight line in case of an API error
-    return waypoints;
+    console.error("Failed to fetch routes from OSRM:", error);
+    return []; // Return empty array on error
   }
 }
-
 
 // --- UI COMPONENTS ---
 const FriendList = ({ onToggle }: { onToggle: () => void }) => (
   <>
     <div className="p-4 flex items-center justify-between border-b border-border flex-shrink-0">
-      <div className="flex items-center gap-3">
-        <Avatar src={currentUser.avatar} fallback={currentUser.name} />
-        <h2 className="font-semibold">{currentUser.name}</h2>
-      </div>
-      <Button variant="ghost" size="icon-sm" onClick={onToggle} className="md:hidden">
-        <X className="size-5" />
-      </Button>
+      <div className="flex items-center gap-3"><Avatar src={currentUser.avatar} fallback={currentUser.name} /><h2 className="font-semibold">{currentUser.name}</h2></div>
+      <Button variant="ghost" size="icon-sm" onClick={onToggle} className="md:hidden"><X className="size-5" /></Button>
     </div>
     <div className="p-4 border-b border-border flex-shrink-0">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4" />
-        <Input placeholder="Search friends or chats" className="pl-9" />
-      </div>
+      <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4" /><Input placeholder="Search friends or chats" className="pl-9" /></div>
     </div>
     <ScrollArea className="flex-1">
       <div className="p-2">
-        {friends.map((friend) => (
+        {friends.map(friend => (
           <div key={friend.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-accent cursor-pointer transition-colors">
             <div className="relative">
               <Avatar src={friend.avatar} fallback={friend.name} />
               <span className={`absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full ${friend.status === "online" ? "bg-green-500" : "bg-gray-500"} ring-2 ring-card`} />
             </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-sm">{friend.name}</h3>
-              <p className="text-xs text-muted-foreground truncate">{friend.lastMessage}</p>
-            </div>
+            <div className="flex-1"><h3 className="font-semibold text-sm">{friend.name}</h3><p className="text-xs text-muted-foreground truncate">{friend.lastMessage}</p></div>
             {friend.unread > 0 && <div className="bg-primary text-primary-foreground text-xs rounded-full size-5 flex items-center justify-center font-semibold">{friend.unread}</div>}
           </div>
         ))}
@@ -122,49 +113,38 @@ const FriendList = ({ onToggle }: { onToggle: () => void }) => (
   </>
 );
 
-/**
- * A controller component that handles map interactions like clicks.
- * It must be a child of the <Map> component.
- */
 const MapInteractionController = ({ onMapClick }: { onMapClick: (e: maplibregl.MapMouseEvent) => void }) => {
   const { map, isLoaded } = useMap();
-
   useEffect(() => {
     if (isLoaded && map) {
       map.on('click', onMapClick);
-      return () => {
-        map.off('click', onMapClick);
-      };
+      return () => { map.off('click', onMapClick); };
     }
   }, [map, isLoaded, onMapClick]);
-
-  return null; // This component does not render anything
+  return null;
 };
-
 
 // --- MAIN APP COMPONENT ---
 export function App() {
-  const [blips, setBlips] = useState([
-    { id: 1, longitude: -122.45, latitude: 37.77, text: "Cool graffiti" },
-  ]);
+  const [blips, setBlips] = useState([{ id: 1, longitude: -122.45, latitude: 37.77, text: "Cool graffiti" }]);
   const [waypoints, setWaypoints] = useState<[number, number][]>([]);
-  const [route, setRoute] = useState<[number, number][]>([]);
+  const [routes, setRoutes] = useState<RouteData[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const [selection, setSelection] = useState<{ lng: number; lat: number } | null>(null);
+  const [selectedWaypoint, setSelectedWaypoint] = useState<{ index: number; lng: number; lat: number } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
     const target = e.originalEvent.target as HTMLElement;
-    // Ignore clicks if they are on a marker's child element
-    if (target.closest('.maplibregl-marker')) {
-      return;
-    }
-    setSelection(e.lngLat);
+    if (target.closest('.maplibregl-marker')) return;
+    setSelection({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+    setSelectedWaypoint(null); // Close waypoint popup when clicking elsewhere
   }, []);
 
   const addBlip = useCallback(() => {
     if (!selection) return;
-    const newBlip = { id: Date.now(), longitude: selection.lng, latitude: selection.lat, text: `Blip #${blips.length + 1}` };
-    setBlips(prev => [...prev, newBlip]);
+    setBlips(prev => [...prev, { id: Date.now(), longitude: selection.lng, latitude: selection.lat, text: `Blip #${blips.length + 1}` }]);
     setSelection(null);
   }, [selection, blips.length]);
 
@@ -174,91 +154,88 @@ export function App() {
     setSelection(null);
   }, [selection]);
 
+  const deleteWaypoint = useCallback((indexToDelete: number) => {
+    setWaypoints(prev => prev.filter((_, index) => index !== indexToDelete));
+    setSelectedWaypoint(null);
+  }, []);
+
   useEffect(() => {
     if (waypoints.length < 2) {
-      setRoute([]);
+      setRoutes([]);
       return;
     }
     let isMounted = true;
-    fetchRoute(waypoints).then(routeCords => {
-      if (isMounted) setRoute(routeCords);
+    setIsLoadingRoute(true);
+    fetchRoutes(waypoints).then(routeData => {
+      if (isMounted) {
+        setRoutes(routeData);
+        setSelectedRouteIndex(0); // Select the first route by default
+        setIsLoadingRoute(false);
+      }
     });
     return () => { isMounted = false; };
   }, [waypoints]);
 
+  const sortedRoutes = [...routes].sort((a, b) => (routes.indexOf(a) === selectedRouteIndex ? 1 : -1));
+
   return (
     <div className="h-screen w-screen bg-background text-foreground font-sans antialiased overflow-hidden">
       <div className="flex h-full w-full">
-        {/* Sidebar */}
-        <aside className={`
-          ${isSidebarOpen ? "flex" : "hidden"} md:flex flex-col
-          absolute md:relative z-30 w-80 h-full bg-card/95 backdrop-blur-sm border-r border-border transition-transform
-        `}>
+        <aside className={` ${isSidebarOpen ? "flex" : "hidden"} md:flex flex-col absolute md:relative z-40 w-80 h-full bg-card/95 backdrop-blur-sm border-r border-border transition-transform`}>
           <FriendList onToggle={() => setIsSidebarOpen(false)} />
         </aside>
 
-        {/* Main Content */}
         <main className="flex-1 flex flex-col relative">
-          {/* Mobile Header */}
-          <header className="md:hidden p-2 flex items-center justify-between absolute top-0 left-0 right-0 z-20 bg-background/50 backdrop-blur-sm">
+          <header className="md:hidden p-2 flex items-center justify-between absolute top-0 left-0 right-0 z-30 bg-background/50 backdrop-blur-sm">
             <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(true)}><Menu /></Button>
             <h1 className="font-semibold text-lg">GeoChat</h1>
             <Avatar src={currentUser.avatar} fallback="F" size="sm" />
           </header>
 
-          {/* Map View */}
           <div className="flex-1 relative" style={{ cursor: 'crosshair' }}>
             <Map initialViewState={{ longitude: -122.4, latitude: 37.79, zoom: 13 }}>
               <MapInteractionController onMapClick={handleMapClick} />
               <MapControls position="top-right" showZoom showCompass />
               
-              {friends.map(friend => (
-                <MapMarker key={`friend-${friend.id}`} longitude={friend.location.longitude} latitude={friend.location.latitude}>
-                  <MarkerContent><Avatar src={friend.avatar} fallback={friend.name.charAt(0)} size="sm" /></MarkerContent>
-                  <MarkerTooltip>{friend.name}</MarkerTooltip>
-                </MapMarker>
-              ))}
-
-              {blips.map(blip => (
-                <MapMarker key={`blip-${blip.id}`} longitude={blip.longitude} latitude={blip.latitude}>
-                  <MarkerContent><MapPin className="text-red-500 size-8" /></MarkerContent>
-                  <MarkerTooltip>{blip.text}</MarkerTooltip>
-                </MapMarker>
-              ))}
-
+              {friends.map(friend => <MapMarker key={`friend-${friend.id}`} longitude={friend.location.longitude} latitude={friend.location.latitude}><MarkerContent><Avatar src={friend.avatar} fallback={friend.name.charAt(0)} size="sm" /></MarkerContent><MarkerTooltip>{friend.name}</MarkerTooltip></MapMarker>)}
+              {blips.map(blip => <MapMarker key={`blip-${blip.id}`} longitude={blip.longitude} latitude={blip.latitude}><MarkerContent><MapPin className="text-red-500 size-8" /></MarkerContent><MarkerTooltip>{blip.text}</MarkerTooltip></MapMarker>)}
+              
               {waypoints.map((wp, i) => (
-                 <MapMarker key={`waypoint-${i}`} longitude={wp[0]} latitude={wp[1]}>
-                  <MarkerContent>
-                    <div className="bg-background rounded-full p-1 shadow-md flex items-center justify-center size-6">
-                      <span className="text-xs font-bold">{i + 1}</span>
-                    </div>
-                  </MarkerContent>
+                 <MapMarker key={`waypoint-${i}`} longitude={wp[0]} latitude={wp[1]} onClick={() => setSelectedWaypoint({ index: i, lng: wp[0], lat: wp[1] })}>
+                  <MarkerContent><div className="bg-background rounded-full p-1 shadow-md flex items-center justify-center size-6 cursor-pointer"><span className="text-xs font-bold">{i + 1}</span></div></MarkerContent>
                 </MapMarker>
               ))}
 
-              {route.length > 1 && <MapRoute coordinates={route} color="#2563eb" width={4} />}
+              {sortedRoutes.map((route, i) => {
+                const originalIndex = routes.indexOf(route);
+                const isSelected = originalIndex === selectedRouteIndex;
+                return <MapRoute key={originalIndex} coordinates={route.coordinates} color={isSelected ? "#3b82f6" : "#94a3b8"} width={isSelected ? 6 : 5} opacity={isSelected ? 0.9 : 0.6} onClick={() => setSelectedRouteIndex(originalIndex)} />;
+              })}
 
-              {selection && (
-                <MapPopup longitude={selection.lng} latitude={selection.lat} onClose={() => setSelection(null)} closeButton>
-                  <div className="flex flex-col gap-2">
-                    <h3 className="font-semibold text-center">Add to map</h3>
-                    <Button onClick={addBlip} size="sm"><MapPin className="size-4 mr-2" /> Add Blip</Button>
-                    <Button onClick={addWaypoint} size="sm"><Flag className="size-4 mr-2" /> Add Waypoint</Button>
-                  </div>
-                </MapPopup>
-              )}
+              {selection && <MapPopup longitude={selection.lng} latitude={selection.lat} onClose={() => setSelection(null)} closeButton><div className="flex flex-col gap-2"><h3 className="font-semibold text-center">Add to map</h3><Button onClick={addBlip} size="sm"><MapPin className="size-4 mr-2" /> Add Blip</Button><Button onClick={addWaypoint} size="sm"><Flag className="size-4 mr-2" /> Add Waypoint</Button></div></MapPopup>}
+              {selectedWaypoint && <MapPopup longitude={selectedWaypoint.lng} latitude={selectedWaypoint.lat} onClose={() => setSelectedWaypoint(null)} closeButton><div className="flex flex-col gap-2"><h3 className="font-semibold text-center">Waypoint {selectedWaypoint.index + 1}</h3><Button onClick={() => deleteWaypoint(selectedWaypoint.index)} variant="destructive" size="sm"><Trash2 className="size-4 mr-2" /> Delete</Button></div></MapPopup>}
             </Map>
           </div>
 
-          {waypoints.length > 0 && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 md:top-auto md:bottom-4">
-              <Button onClick={() => { setWaypoints([]); setRoute([]); }} variant="destructive" size="sm" className="shadow-lg">
-                Clear Route
-              </Button>
+          {routes.length > 0 && (
+            <div className="absolute top-16 md:top-3 left-3 z-10 flex flex-col gap-2">
+              {routes.map((route, index) => (
+                <Button key={index} variant={index === selectedRouteIndex ? "default" : "secondary"} size="sm" onClick={() => setSelectedRouteIndex(index)} className="justify-start gap-3 h-auto py-1.5 px-3 shadow-lg">
+                  <div className="flex items-center gap-1.5"><Clock className="size-3.5" /><span className="font-medium">{formatDuration(route.duration)}</span></div>
+                  <div className="flex items-center gap-1.5 text-xs opacity-80"><RouteIcon className="size-3" />{formatDistance(route.distance)}</div>
+                </Button>
+              ))}
             </div>
           )}
 
-          {/* Mobile Bottom Nav */}
+          {isLoadingRoute && <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>}
+          
+          {waypoints.length > 0 && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+              <Button onClick={() => { setWaypoints([]); setRoutes([]); }} variant="destructive" size="sm" className="shadow-lg">Clear All Waypoints</Button>
+            </div>
+          )}
+
           <footer className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border p-2 flex justify-around items-center z-20">
             <Button variant="ghost" className="flex flex-col h-auto p-1 gap-1"><MessageCircle className="size-5" /><span className="text-xs">Chats</span></Button>
             <Button variant="ghost" className="flex flex-col h-auto p-1 gap-1 text-primary"><MapIcon className="size-5" /><span className="text-xs">Map</span></Button>
