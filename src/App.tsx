@@ -30,7 +30,8 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./index.css";
 import { Input } from "./components/ui/input";
 import { ScrollArea } from "./components/ui/scroll-area";
-import { Toaster, toast } from "./components/ui/sonner";
+import { Toaster } from "./components/ui/sonner";
+import { toast } from "sonner";
 
 // --- TYPES ---
 interface Blip { id: number; longitude: number; latitude: number; text: string; }
